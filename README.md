@@ -1,50 +1,37 @@
-# 🚀 Bot Supremo de Promoções (Discord + WhatsApp)
+# 🚀 Bot de Promoções VIP com Painel Admin completo (Discord + WhatsApp)
 
-Este é um bot completo, moderno e muito caprichado construído em Python. Ele roda no Discord como centro de controle e se conecta ao WhatsApp via **Evolution API**, permitindo criar promoções, gerar banners profissionais automaticamente com Pillow e disparar tudo com um único comando.
-
----
-
-## 🎨 Recursos Incríveis
-- 🤖 **Interface de Controle via Discord:** Altere títulos, descrições e links de afiliados com comandos simples.
-- 🖼️ **Gerador de Banners HD:** Criação automática de imagens elegantes (1200x630) com gradientes modernos, bordas suaves, preços destacados e tags promocionais.
-- 📱 **Conexão WhatsApp Simplificada:** Suporte a Código de Pareamento de 8 dígitos ou QR Code via Evolution API.
-- ⚡ **Pronto para a Render:** Já possui servidor Flask interno integrado com Gunicorn para manter a hospedagem ativa 24/7.
+Este é um bot completo, moderno e caprichado para Discord com controle de vendas, estoque, chave PIX, minigame do Dinossauro e envio para WhatsApp.
 
 ---
 
-## 📁 Estrutura do Projeto
-```text
-bot_promocoes_vip/
-├── main.py              # Script principal com Discord, Flask e integração WhatsApp
-├── banner_generator.py # Módulo de geração visual caprichada de imagens (Pillow)
-├── requirements.txt     # Dependências do projeto
-├── Procfile             # Configuração de inicialização para a Render
-└── README.md            # Documentação e instruções de uso
-```
+## 🔐 Controle de Acesso (Cargo de Admin)
+Para usar qualquer comando de administração ou o minigame, o usuário precisa ter o cargo definido como `Admin` no servidor do Discord.
 
 ---
 
-## ⚙️ Como Hospedar na Render (Passo a Passo)
-
-1. Suba este projeto para um repositório no **GitHub**.
-2. Acesse o painel da **[Render](https://render.com/)**, crie um **New Web Service** e conecte seu repositório.
-3. Configure as variáveis de ambiente em **Environment Variables**:
-   - `MTU2NjI0MjAxNzgzNzU4MDI4OA.GKCdzn.khYbfHhwmhbCJs8ikjrEhLkCPfp9RYJiiihdos`: Token do seu bot obtido no Discord Developer Portal.
-   - `https://evolution-api-production-d8bd.up.railway.app`: URL da sua instância da Evolution API.
-   - `bf7e486d221a66dc442f610f29d9fec6a3dc760b8eb35bf7ef4a01d8dc98210a`: Sua chave de API da Evolution.
-   - `botjp`: Nome da sua instância (ex: `bot_promo`).
-4. Selecione `Python 3` como ambiente e confirme o deploy!
+## 🎨 Recursos do Sistema
+- 🛡️ **Verificação de Cargo Admin:** Proteção em todos os comandos administrativos.
+- 📦 **Gestão de Produtos e Estoque:** Adicione produtos, estoque e valores de vendas.
+- 🔗 **Links de Afiliados:** Altere e gerencie links de afiliados por produto.
+- 🖼️ **Gerador de Imagens & Textos:** Criação de banners HD automáticos e copys de vendas.
+- 📊 **Relatório Diário de Vendas & PIX:** Acompanhe o faturamento do dia, chave PIX e lista de clientes que pagaram via PIX.
+- 🦖 **Jogo do Dinossauro (Mini-game no Discord):** Jogo interativo no chat com botões para pular e esquivar dos cactos!
 
 ---
 
-## 💻 Comandos no Discord
+## 💻 Lista de Comandos para Admins
 
-- `!setpromo <Título> | <Descrição>` - Define o título e a descrição da oferta.
-- `!setlink <URL>` - Define o link de afiliado.
-- `!setpreco <Preço Antigo> | <Preço Novo>` - Define os valores promocionais.
-- `!verpromo` - Exibe uma prévia elegante da promoção atual no Discord.
-- `!gerarimagem` - Gera e envia o banner visual caprichado no canal.
-- `!conectar_codigo <Número>` - Solicita o código de pareamento do WhatsApp (ex: `!conectar_codigo 5511999999999`).
-- `!conectar_qr` - Exibe as informações do QR Code de conexão.
-- `!disparar_wa <Destino>` - Envia o texto da promoção para o WhatsApp.
-- `!disparar_wa_midia <Destino>` - Envia a **imagem + legenda formatada** para o WhatsApp.
+### 📦 Gestão de Produtos, Estoque e PIX
+- `!addproduto <nome> | <preco_antigo> | <preco_novo> | <estoque> | <link>` - Adiciona ou atualiza um produto no estoque.
+- `!addestoque <nome_produto> <quantidade>` - Adiciona unidades ao estoque existente.
+- `!setlink <nome_produto> <novo_link>` - Altera o link de afiliado do produto.
+- `!setpix <chave_pix>` - Define a chave PIX configurada para receber pagamentos.
+- `!registrarpix <nome_cliente> | <valor> | <produto>` - Registra um pagamento PIX efetuado por um cliente.
+- `!relatorio` - Exibe o total faturado no dia, chave PIX atual e lista de clientes que pagaram.
+
+### 🎨 Geração de Conteúdo
+- `!gerartermo <nome_produto>` - Gera a cópia/texto formatado da promoção pronto para divulgar.
+- `!gerarimagem <nome_produto>` - Gera o banner visual em alta qualidade para o produto.
+
+### 🦖 Mini-game
+- `!dino` - Inicia o Jogo do Dinossauro interativo diretamente no Discord!

@@ -1,190 +1,232 @@
 import os
+import random
+import datetime
 import threading
-import requests
 from flask import Flask
 import discord
 from discord.ext import commands
-from banner_generator import gerar_banner_profissional
+from discord.ui import Button, View
+from banner_generator import gerar_banner_produto
 
 # -------------------------------------------------------------
-# CONFIGURAÇÃO DO SERVIDOR WEB (FLASK) PARA MANTER A RENDER ATIVA
+# FLASK PARA RENDER
 # -------------------------------------------------------------
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 Bot de Promoções VIP (Discord + WhatsApp) está ativo e operando!"
+    return "🚀 Bot Admin & Estoque & Dino Ativo!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 # -------------------------------------------------------------
-# CONFIGURAÇÃO DO BOT DISCORD E VARIÁVEIS GLOBAIS
+# BOT DISCORD COM VERIFICAÇÃO DE CARGO ADMIN
 # -------------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Configurações da API do WhatsApp (Evolution API)
-EVOLUTION_URL = os.environ.get("EVOLUTION_URL", "https://sua-instancia-evolution.com")
-EVOLUTION_API_KEY = os.environ.get("EVOLUTION_API_KEY", "sua_chave_api")
-INSTANCE_NAME = os.environ.get("INSTANCE_NAME", "bot_promo")
+# Banco de dados em memória
+produtos = {}
+chave_pix = "Chave PIX não configurada"
+vendas_dia = []  # Lista de dicts: {"cliente": str, "valor": float, "produto": str, "data": str}
 
-headers_api = {
-    "apikey": EVOLUTION_API_KEY,
-    "Content-Type": "application/json"
-}
-
-# Estado da Promoção Editável
-promocao = {
-    "titulo": "🔥 SMARTPHONE PREMIUM COM 40% OFF",
-    "descricao": "Garanta a melhor tecnologia com preço imbatível e frete grátis para todo o Brasil!",
-    "link": "https://sualoja.com/promocao-especial",
-    "preco_antigo": "R$ 2.999,00",
-    "preco_novo": "R$ 1.799,00"
-}
+def eh_admin():
+    """Decorator para verificar se o usuário tem o cargo 'Admin'."""
+    async def predicate(ctx):
+        cargo = discord.utils.get(ctx.author.roles, name="Admin")
+        if cargo is None:
+            await ctx.send("❌ **Acesso Negado!** Apenas usuários com o cargo **Admin** podem usar este comando.")
+            return False
+        return True
+    return commands.check(predicate)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot conectado com sucesso como: {bot.user}")
-    print("📌 Servidor Flask pronto para pings de sustentação na Render.")
+    print(f"✅ Bot Admin conectado como {bot.user}")
 
 # -------------------------------------------------------------
-# COMANDOS DE GERENCIAMENTO E EDIÇÃO DE PROMOÇÕES (DISCORD)
+# COMANDOS DE ADMINISTRAÇÃO (ESTOQUE, PRODUTO, LINK, PIX)
 # -------------------------------------------------------------
-@bot.command(name="setpromo")
-async def setpromo(ctx, *, conteudo: str):
-    """Define o título e a descrição separados por '|'. Ex: !setpromo Título | Descrição"""
-    global promocao
-    if "|" in conteudo:
-        t, d = conteudo.split("|", 1)
-        promocao["titulo"] = t.strip()
-        promocao["descricao"] = d.strip()
-        await ctx.send(f"✅ **Título e Descrição atualizados!**\n📌 **Título:** {promocao['titulo']}\n📝 **Descrição:** {promocao['descricao']}")
+@bot.command(name="addproduto")
+@eh_admin()
+async def addproduto(ctx, *, dados: str):
+    """Uso: !addproduto Nome | Preço Antigo | Preço Novo | Estoque | Link Afiliado"""
+    try:
+        partes = [p.strip() for p in dados.split("|")]
+        nome, preco_ant, preco_novo, qtd, link = partes[0], partes[1], partes[2], int(partes[3]), partes[4]
+        produtos[nome.lower()] = {
+            "nome": nome,
+            "preco_antigo": preco_ant,
+            "preco_novo": preco_novo,
+            "estoque": qtd,
+            "link": link
+        }
+        await ctx.send(f"✅ **Produto '{nome}' cadastrado com sucesso!**\n📦 Estoque: {qtd} un | 🔗 Link: {link}")
+    except Exception:
+        await ctx.send("⚠️ Formato incorreto! Use: `!addproduto Nome | Preço Antigo | Preço Novo | Estoque | Link`")
+
+@bot.command(name="addestoque")
+@eh_admin()
+async def addestoque(ctx, nome_produto: str, quantidade: int):
+    """Adiciona unidades ao estoque de um produto."""
+    prod_key = nome_produto.lower()
+    if prod_key in produtos:
+        produtos[prod_key]["estoque"] += quantidade
+        await ctx.send(f"📦 **Estoque atualizado!** Produto '{produtos[prod_key]['nome']}' agora possui **{produtos[prod_key]['estoque']}** unidades.")
     else:
-        await ctx.send("⚠️ Use o separador `|`. Exemplo: `!setpromo Título da Oferta | Descrição da Oferta`")
+        await ctx.send(f"❌ Produto '{nome_produto}' não encontrado no estoque.")
 
 @bot.command(name="setlink")
-async def setlink(ctx, link: str):
-    """Atualiza o link de destino da promoção."""
-    global promocao
-    promocao["link"] = link.strip()
-    await ctx.send(f"✅ **Link atualizado:** {promocao['link']}")
-
-@bot.command(name="setpreco")
-async def setpreco(ctx, *, precos: str):
-    """Define os preços antigo e novo. Ex: !setpreco R$ 199,90 | R$ 99,90"""
-    global promocao
-    if "|" in precos:
-        pa, pn = precos.split("|", 1)
-        promocao["preco_antigo"] = pa.strip()
-        promocao["preco_novo"] = pn.strip()
-        await ctx.send(f"✅ **Preços Atualizados!**\n❌ De: {promocao['preco_antigo']} ➔ ✅ Por: {promocao['preco_novo']}")
+@eh_admin()
+async def setlink(ctx, nome_produto: str, novo_link: str):
+    """Altera o link de afiliado de um produto."""
+    prod_key = nome_produto.lower()
+    if prod_key in produtos:
+        produtos[prod_key]["link"] = novo_link
+        await ctx.send(f"🔗 **Link de Afiliado atualizado!** Produto '{produtos[prod_key]['nome']}' ➔ {novo_link}")
     else:
-        promocao["preco_novo"] = precos.strip()
-        await ctx.send(f"✅ **Preço Novo Atualizado:** {promocao['preco_novo']}")
+        await ctx.send(f"❌ Produto '{nome_produto}' não encontrado.")
 
-@bot.command(name="verpromo")
-async def verpromo(ctx):
-    """Exibe uma prévia estilizada no Discord com os dados atuais."""
-    embed = discord.Embed(
-        title=promocao["titulo"],
-        description=promocao["descricao"],
-        color=0x38bdf8
-    )
-    embed.add_field(name="💰 Preço Antigo", value=promocao["preco_antigo"] or "N/A", inline=True)
-    embed.add_field(name="🔥 Preço Promo", value=promocao["preco_novo"] or "N/A", inline=True)
-    embed.add_field(name="🔗 Link de Afiliado", value=promocao["link"], inline=False)
-    embed.set_footer(text="Use !gerarimagem para criar o banner visual ou !disparar_wa para enviar ao WhatsApp.")
+@bot.command(name="setpix")
+@eh_admin()
+async def setpix(ctx, *, nova_chave: str):
+    """Define a chave PIX atual."""
+    global chave_pix
+    chave_pix = nova_chave.strip()
+    await ctx.send(f"🔑 **Chave PIX atualizada para:** `{chave_pix}`")
+
+@bot.command(name="registrarpix")
+@eh_admin()
+async def registrarpix(ctx, *, dados: str):
+    """Uso: !registrarpix Nome Cliente | Valor | Produto"""
+    try:
+        cliente, valor, prod = [p.strip() for p in dados.split("|")]
+        vendas_dia.append({
+            "cliente": cliente,
+            "valor": float(valor.replace("R$", "").replace(",", ".").strip()),
+            "produto": prod,
+            "horario": datetime.datetime.now().strftime("%H:%M")
+        })
+        await ctx.send(f"💸 **Pagamento PIX registrado!** Cliente: `{cliente}` | Valor: `R$ {valor}`")
+    except Exception:
+        await ctx.send("⚠️ Formato incorreto! Use: `!registrarpix Nome Cliente | Valor | Nome Produto`")
+
+@bot.command(name="relatorio")
+@eh_admin()
+async def relatorio(ctx):
+    """Relatório diário de faturamento, chave PIX e clientes que pagaram."""
+    total_hoje = sum(v["valor"] for v in vendas_dia)
+    embed = discord.Embed(title="📊 Relatório Diário de Vendas & PIX", color=0x34d399)
+    embed.add_field(name="🔑 Chave PIX Atual", value=f"`{chave_pix}`", inline=False)
+    embed.add_field(name="💰 Total Faturado Hoje", value=f"**R$ {total_hoje:.2f}**", inline=False)
+    
+    if vendas_dia:
+        lista_clientes = "\n".join([f"• **{v['cliente']}** - R$ {v['valor']:.2f} ({v['produto']}) às {v['horario']}" for v in vendas_dia])
+        embed.add_field(name="👥 Clientes que fizeram PIX hoje", value=lista_clientes, inline=False)
+    else:
+        embed.add_field(name="👥 Clientes que fizeram PIX hoje", value="Nenhum pagamento registrado hoje ainda.", inline=False)
+        
     await ctx.send(embed=embed)
 
+# -------------------------------------------------------------
+# GERAÇÃO DE IMAGEM E TEXTO
+# -------------------------------------------------------------
+@bot.command(name="gerartermo")
+@eh_admin()
+async def gerartermo(ctx, *, nome_produto: str):
+    """Gera o texto copys de divulgação do produto."""
+    prod_key = nome_produto.lower()
+    if prod_key in produtos:
+        p = produtos[prod_key]
+        texto = (
+            f"🔥 **SUPER OFERTA: {p['nome'].upper()}** 🔥\n\n"
+            f"❌ De: ~{p['preco_antigo']}~\n"
+            f"✅ **Por Apenas: {p['preco_novo']}**\n"
+            f"📦 Restam apenas **{p['estoque']} unidades** em estoque!\n\n"
+            f"🛒 **Compre pelo Link de Afiliado:** {p['link']}\n"
+            f"💳 **Pagamentos via PIX:** `{chave_pix}`"
+        )
+        await ctx.send(f"📝 **Texto Gerado para o Produto:**\n\n{texto}")
+    else:
+        await ctx.send(f"❌ Produto '{nome_produto}' não encontrado. Cadastre com `!addproduto`.")
+
 @bot.command(name="gerarimagem")
-async def gerarimagem(ctx):
-    """Gera um banner visual caprichado usando o Pillow e envia no Discord."""
-    img_bytes = gerar_banner_profissional(
-        titulo=promocao["titulo"],
-        descricao=promocao["descricao"],
-        preco_antigo=promocao["preco_antigo"],
-        preco_novo=promocao["preco_novo"]
-    )
-    file = discord.File(fp=img_bytes, filename="banner_promo.png")
-    await ctx.send("🎨 **Banner Profissional Gerado com Sucesso!**", file=file)
+@eh_admin()
+async def gerarimagem(ctx, *, nome_produto: str):
+    """Gera o banner em imagem do produto."""
+    prod_key = nome_produto.lower()
+    if prod_key in produtos:
+        p = produtos[prod_key]
+        img_bytes = gerar_banner_produto(
+            titulo=p['nome'],
+            preco_antigo=p['preco_antigo'],
+            preco_novo=p['preco_novo']
+        )
+        file = discord.File(fp=img_bytes, filename=f"promo_{prod_key}.png")
+        await ctx.send("🖼️ **Banner Gerado com Sucesso!**", file=file)
+    else:
+        await ctx.send(f"❌ Produto '{nome_produto}' não encontrado.")
 
 # -------------------------------------------------------------
-# COMANDOS DE CONEXÃO E DISPARO DO WHATSAPP (EVOLUTION API)
+# JOGUINHO DO DINOSSAURO PARA O ADMIN 🦖
 # -------------------------------------------------------------
-@bot.command(name="conectar_codigo")
-async def conectar_codigo(ctx, numero_telefone: str):
-    """Gera o código de pareamento de 8 dígitos para o número informado (ex: 5511999999999)."""
-    url = f"{EVOLUTION_URL}/instance/connect/{INSTANCE_NAME}"
-    payload = {"number": numero_telefone}
-    
-    try:
-        res = requests.post(url, json=payload, headers=headers_api, timeout=10)
-        dados = res.json()
-        codigo = dados.get("pairingCode")
+class DinoGameView(View):
+    def __init__(self, author):
+        super().__init__(timeout=60)
+        self.author = author
+        self.score = 0
+        self.game_over = False
+
+    def render_game(self):
+        if self.game_over:
+            return f"🦖💥 **GAME OVER!**\nCacto atingido! PONTUAÇÃO FINAL: **{self.score} pontos**."
         
-        if codigo:
-            await ctx.send(
-                f"🔢 **Código de Pareamento WhatsApp:** `{codigo}`\n\n"
-                f"📲 Abra seu WhatsApp ➔ **Aparelhos Conectados** ➔ **Conectar com número de telefone** e digite o código acima."
-            )
-        else:
-            await ctx.send(f"⚠️ Resposta da API: {dados}")
-    except Exception as e:
-        await ctx.send(f"❌ Erro ao conectar com a Evolution API: {e}")
+        trilhos = ["⬛"] * 8
+        pos_dino = 1
+        pos_cacto = 7 - (self.score % 6)
+        
+        if pos_dino == pos_cacto:
+            self.game_over = True
+            return f"🦖💥 **GAME OVER!**\nO Dino bateu no cacto 🌵! Pontuação: **{self.score}**"
+            
+        trilhos[pos_dino] = "🦖"
+        trilhos[pos_cacto] = "🌵"
+        
+        return f"🎮 **Jogo do Dinossauro Admin**\nPontuação: **{self.score}**\n\n" + "".join(trilhos)
 
-@bot.command(name="conectar_qr")
-async def conectar_qr(ctx):
-    """Obtém as informações de conexão via QR Code."""
-    url = f"{EVOLUTION_URL}/instance/connect/{INSTANCE_NAME}"
-    try:
-        res = requests.get(url, headers=headers_api, timeout=10)
-        dados = res.json()
-        await ctx.send(f"📱 **Status da Conexão:**\n```{dados}```")
-    except Exception as e:
-        await ctx.send(f"❌ Erro ao solicitar QR Code: {e}")
+    @discord.ui.button(label="🦘 Pular / Avançar", style=discord.ButtonStyle.green)
+    async def pular(self, interaction: discord.Interaction, button: Button):
+        if interaction.user != self.author:
+            await interaction.response.send_message("Apenas o Admin que iniciou o jogo pode jogar!", ephemeral=True)
+            return
+        
+        self.score += 1
+        msg = self.render_game()
+        if self.game_over:
+            for item in self.children:
+                item.disabled = True
+        await interaction.response.edit_message(content=msg, view=self)
 
-@bot.command(name="disparar_wa")
-async def disparar_wa(ctx, destino: str):
-    """Envia a mensagem da promoção para um número ou ID de grupo (ex: 5511999999999)."""
-    url = f"{EVOLUTION_URL}/message/sendText/{INSTANCE_NAME}"
-    
-    texto_formatado = (
-        f"*{promocao['titulo']}*\n\n"
-        f"{promocao['descricao']}\n\n"
-        f"❌ ~De: {promocao['preco_antigo']}~\n"
-        f"✅ *Por apenas: {promocao['preco_novo']}*\n\n"
-        f"🛒 *Garanta o seu aqui:* {promocao['link']}"
-    )
-    
-    payload = {
-        "number": destino,
-        "text": texto_formatado
-    }
-    
-    try:
-        res = requests.post(url, json=payload, headers=headers_api, timeout=10)
-        if res.status_code in [200, 201]:
-            await ctx.send(f"🚀 **Promoção disparada com sucesso para WhatsApp:** `{destino}`!")
-        else:
-            await ctx.send(f"❌ Falha no disparo: {res.text}")
-    except Exception as e:
-        await ctx.send(f"❌ Erro de conexão com a API do WhatsApp: {e}")
+@bot.command(name="dino")
+@eh_admin()
+async def dino(ctx):
+    """Inicia o minigame do Dinossauro exclusivo para Admins!"""
+    view = DinoGameView(ctx.author)
+    await ctx.send(view.render_game(), view=view)
 
 # -------------------------------------------------------------
-# INICIALIZAÇÃO DA APLICAÇÃO
+# INICIALIZAÇÃO
 # -------------------------------------------------------------
 if __name__ == "__main__":
-    # Inicia o servidor web Flask em uma thread separada para a Render
     t = threading.Thread(target=run_web)
     t.daemon = True
     t.start()
     
-    # Inicia o bot do Discord
     TOKEN = os.environ.get("DISCORD_TOKEN")
     if TOKEN:
         bot.run(TOKEN)
     else:
-        print("⚠️ ALERTA: 'DISCORD_TOKEN' não foi encontrado nas variáveis de ambiente.")
+        print("⚠️ TOKEN do Discord não configurado!")
